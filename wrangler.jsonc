@@ -3,5 +3,5 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
   "assets": {"directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"]},
-  "d1_databases": [{"binding": "DB", "database_name": "task-arcade-db", "database_id": "REPLACE_WITH_DATABASE_ID", "migrations_dir": "migrations"}]
+  "d1_databases": [{"binding": "DB", "database_name": "task-arcade-db", "database_id": "7b7e11b6-6075-48ef-bb2a-6909ca2f565f", "migrations_dir": "migrations"}]
 }
