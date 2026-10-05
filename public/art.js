@@ -1,13 +1,14 @@
 import {ANIMALS,wardrobeFor} from './catalog.js';
-// Original inline SVG artwork. No external fonts, image requests, or icon service.
+// Animal artwork is original. Arcade and adult icons: Lucide v1.52.0 (ISC).
+// License bundled in lucide-LICENSE.txt; icons work offline.
 const paths={
  star:'<path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.4-5.7-3-5.7 3 1.1-6.4-4.6-4.5 6.4-.9Z"/>',
  bolt:'<path d="m13 2-9 12h7l-1 8 10-13h-7Z"/>',
  clock:'<circle cx="12" cy="13" r="8"/><path d="M9 2h6M12 5V2m6 4 2-2M12 8v5l3 2"/>',
  map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Zm6-2v16m6-14v16"/>',
  gift:'<path d="M3 9h18v4H3zm2 4v8h14v-8M12 9v12"/><path d="M12 9C2 9 6 0 10 4l2 5Zm0 0c10 0 6-9 2-5l-2 5Z"/>',
- key:'<circle cx="8" cy="9" r="5"/><path d="m12 13 8 8m-4-4 3-3m-6 0 3-3"/>',
- arcade:'<path d="M7 3h10l2 10v8H5v-8Z"/><path d="M8 6h8v5H8zm1 9v3m-2-1h4m4-1h2"/>',
+ key:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" />',
+ arcade:'<line x1="6" x2="10" y1="11" y2="11" /><line x1="8" x2="8" y1="9" y2="13" /><line x1="15" x2="15.01" y1="12" y2="12" /><line x1="18" x2="18.01" y1="10" y2="10" /><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z" />',
  book:'<path d="M12 5C8 2 4 3 2 4v16c3-2 7-2 10 0 3-2 7-2 10 0V4c-2-1-6-2-10 1Zm0 0v15"/>',
  broom:'<path d="m17 2-7 11m-3-1 7 4-5 6-7-4Zm-3 3 7 4"/>',
  rocket:'<path d="M9 15C8 7 15 2 21 3c1 6-4 13-12 12Zm0 0-5-1 1-4 5-2m4 6 1 5-4 1-1-5M6 18l-3 3"/><circle cx="16" cy="8" r="2"/>',
