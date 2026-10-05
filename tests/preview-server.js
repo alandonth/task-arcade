@@ -1,0 +1,9 @@
+// Test-only adapter; npm run dev uses the actual Cloudflare runtime.
+import http from 'node:http';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {resolve,extname} from 'node:path';
+import worker from '../src/worker.js';
+const root=resolve('public'),db=new DatabaseSync(':memory:');db.exec(readFileSync('migrations/0001_initial.sql','utf8'));
+const DB={prepare(sql){let args=[];return {bind(...a){args=a;return this;},async first(){return db.prepare(sql).get(...args)||null;},async all(){return {results:db.prepare(sql).all(...args)};},async run(){return {meta:{changes:Number(db.prepare(sql).run(...args).changes)}};}};},async batch(items){db.exec('BEGIN');try{const r=[];for(const i of items)r.push(await i.run());db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}}};
+http.createServer(async(req,res)=>{try{const chunks=[];for await(const c of req)chunks.push(c);const request=new Request('http://localhost:8788'+req.url,{method:req.method,headers:req.headers,...(req.method==='GET'?{}:{body:Buffer.concat(chunks)})});const out=await worker.fetch(request,{DB,ASSETS:{async fetch(r){const u=new URL(r.url),path=resolve(root,'.'+(u.pathname==='/'?'/index.html':u.pathname));if(!path.startsWith(root+'/'))return new Response('Forbidden',{status:403});try{return new Response(readFileSync(path),{headers:{'Content-Type':({'.html':'text/html','.js':'text/javascript','.css':'text/css','.webmanifest':'application/manifest+json','.png':'image/png'})[extname(path)]||'text/plain'}});}catch{return new Response('Not found',{status:404});}}}});res.writeHead(out.status,Object.fromEntries(out.headers));res.end(Buffer.from(await out.arrayBuffer()));}catch(e){console.error(e);res.writeHead(500);res.end('Error');}}).listen(8788,()=>console.log('Test preview http://localhost:8788'));
