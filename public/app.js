@@ -5,6 +5,8 @@ const $=s=>document.querySelector(s),app=$('#app'),modal=$('#modal');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cacheKey='task-arcade-state-v1',playerKey='task-arcade-player';
 let shopSlot='hat';
+let saveQueue=Promise.resolve();
+const REQUEST_TIMEOUT_MS=15000;
 let data=null,profileId=localStorage.getItem(playerKey),view='tasks',offline=false,busy=false,wake=null,game=null,autoTimer=null,lastPrompt=0,adultTimer=null,installedEvent=null;
 document.title=APP_NAME;
 const p=()=>data?.profiles.find(p=>p.id===profileId);
@@ -13,12 +15,35 @@ const fmt=ms=>{const n=Math.ceil(Math.max(0,ms)/1000);return `${Math.floor(n/60)
 const spent=a=>a.elapsed+(a.startedAt===null?0:Math.max(0,Date.now()-a.startedAt));
 function toast(message){$('#toast').textContent=message;$('#toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').style.display='none',5000);}
 async function api(path,body){
- let r;try{r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});}catch{offline=true;throw Error('You’re offline. Your timer still works; reconnect to save changes.');}
- const result=await r.json();if(!r.ok){if(r.status===401){data=null;localStorage.removeItem(cacheKey);renderAuth();}if(r.status===409)await refresh();throw Error(result.error);}offline=false;return result;
+ const controller=new AbortController();let timeout;
+ try{
+  const request=(async()=>{
+   const r=await fetch('/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal});
+   const result=await r.json();return {r,result};
+  })();
+  const {r,result}=await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>{controller.abort();reject(Error('The save took too long. Please try again.'));},REQUEST_TIMEOUT_MS);})]);
+  if(!r.ok){if(r.status===401){data=null;localStorage.removeItem(cacheKey);renderAuth();}if(r.status===409)await refresh();throw Error(result.error);}
+  offline=false;return result;
+ }catch(err){
+  if(err instanceof TypeError){offline=true;throw Error('You’re offline. Your timer still works; reconnect to save changes.');}
+  throw err;
+ }finally{clearTimeout(timeout);}
 }
 function accept(d){data=d;localStorage.setItem(cacheKey,JSON.stringify(d));if(!p())profileId=null;}
 async function refresh(){accept(await api('state'));}
-async function action(action,extra={}){if(busy)throw Error('One moment—your last change is still saving.');if(offline)throw Error('Reconnect to save changes.');busy=true;try{const d=await api('action',{profileId,version:p().version,action,...extra});accept(d);return d.result;}finally{busy=false;}}
+function action(name,extra={}){
+ const targetProfile=profileId;
+ const pending=saveQueue.then(async()=>{
+  if(offline)throw Error('Reconnect to save changes.');
+  const player=data?.profiles.find(player=>player.id===targetProfile);
+  if(!player)throw Error('Choose a player before saving.');
+  busy=true;
+  try{const d=await api('action',{profileId:targetProfile,version:player.version,action:name,...extra});accept(d);return d.result;}
+  finally{busy=false;}
+ });
+ saveQueue=pending.catch(()=>{});
+ return pending;
+}
 function dialog(title,content){clearTimeout(autoTimer);modal.innerHTML=vectorize(`<div class="dialog-head"><h2>${esc(title)}</h2><button class="plain" data-close aria-label="Close">✕</button></div>${content}`);modal.showModal();modal.querySelector('[data-close]').onclick=()=>modal.close();}
 modal.addEventListener('close',()=>{clearTimeout(autoTimer);});
 function stopAudio(){if('speechSynthesis' in window)speechSynthesis.cancel();}
@@ -52,7 +77,7 @@ function renderTasks(){const s=state(),active=s.active,t=s.tasks.find(t=>t.id===
  shell(`<main><div class="row wrap" style="margin-bottom:25px"><div><p class="eyebrow">${esc(p().name)}’s next adventure</p><h1 style="margin-bottom:0">Let’s do a little good.</h1></div><button class="primary" id="add">＋ Add task</button></div><div class="grid"><section class="stack"><div class="row"><h2 style="margin:0">Task trail</h2><span class="badge">${s.tasks.length} to go</span></div>${s.tasks.length?s.tasks.map((t,i)=>`<article class="card task"><div class="task-icon">${taskEmoji(t)}</div><div class="task-main"><h3>${esc(t.title)}</h3><small>${t.minutes} min${t.steps.length?' · '+t.steps.length+' steps':''}</small></div><div class="task-actions"><button class="small" data-move="${t.id}" ${i===0?'disabled':''} aria-label="Move ${esc(t.title)} earlier">↑</button><button class="primary" data-start="${t.id}">▶ Go</button><button class="small plain" data-remove="${t.id}" aria-label="Remove ${esc(t.title)}">✕</button></div></article>`).join(''):'<div class="card empty"><div class="big">🛠️</div><h3>What’s your next little mission?</h3><p>Add a chore, some homework, or anything you want to finish.</p></div>'}</section><aside class="stack"><div class="card yellow"><p class="eyebrow">Your arcade battery</p><div class="energy">⚡ ${Math.floor(s.energy/60)}<small> min</small></div><p>${s.energy?'Your games have energy. Ready when you are!':'The arcade is snoozing. Finish a task to wake it up.'}</p><button id="go-map">Visit the map →</button></div><div class="card"><h3>Every little win counts.</h3><p>Finish a task to earn ${data.settings.rewardMinutes} minutes of energy and 10 points.${data.settings.bonusMinutes?' Finish early for a little extra.':''}</p><span class="badge">🏁 ${s.completed} tasks completed</span></div></aside></div></main>`);
  $('#add').onclick=addTask;$('#go-map').onclick=()=>{view='arcade';render();};document.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>start(b.dataset.start));document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>runAction('remove',{taskId:b.dataset.remove}));document.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>runAction('move',{taskId:b.dataset.move,direction:-1}));
 }
-function addTask(){dialog('A little mission',`<form id="task-form" class="form"><label>What are you doing?<input name="title" placeholder="Feed the dog" required maxlength="100"></label><div class="two"><label>Minutes<input name="minutes" type="number" min="1" max="180" value="10" required></label><label>Kind of task<select name="category"><option value="chores">Chore</option><option value="homework">Homework</option><option value="other">Something else</option></select></label></div><label>Little steps <small>Optional · one per line</small><textarea name="steps" maxlength="1000" placeholder="Fill the food bowl&#10;Check the water bowl"></textarea></label><label>A helpful reminder <small>Optional · spoken during the timer</small><input name="prompt" maxlength="200" placeholder="Remember the water bowl, too!"></label><button class="primary">Add to the trail</button></form>`);$('#task-form').onsubmit=async e=>{e.preventDefault();try{await action('add',Object.fromEntries(new FormData(e.target)));modal.close();render();}catch(err){toast(err.message);}};}
+function addTask(){dialog('A little mission',`<form id="task-form" class="form"><label>What are you doing?<input name="title" placeholder="Feed the dog" required maxlength="100"></label><div class="two"><label>Minutes<input name="minutes" type="number" min="1" max="180" value="10" required></label><label>Kind of task<select name="category"><option value="chores">Chore</option><option value="homework">Homework</option><option value="other">Something else</option></select></label></div><label>Little steps <small>Optional · one per line</small><textarea name="steps" maxlength="1000" placeholder="Fill the food bowl&#10;Check the water bowl"></textarea></label><label>A helpful reminder <small>Optional · spoken during the timer</small><input name="prompt" maxlength="200" placeholder="Remember the water bowl, too!"></label><p id="task-error" role="alert"></p><button class="primary">Add to the trail</button></form>`);$('#task-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');if(button.disabled)return;const error=e.target.querySelector('#task-error');error.textContent='';button.disabled=true;button.textContent='Saving…';try{await action('add',Object.fromEntries(new FormData(e.target)));modal.close();render();}catch(err){error.textContent=err.message;}finally{button.disabled=false;button.textContent='Add to the trail';}};}
 async function runAction(name,extra={}){try{await action(name,extra);if(['pause','stop'].includes(name))stopAudio();render();}catch(err){toast(err.message);render();}}
 async function start(id){try{await action('start',{taskId:id});lastPrompt=Date.now();render();speak(`Time for ${state().tasks.find(t=>t.id===id).title}. One little step at a time!`);}catch(err){toast(err.message);}}
 async function complete(){try{const r=await action('complete');if(!r)return;stopAudio();render();dialog('You did it!',`<div class="reward"><div class="gift">🎁</div><h2>A little win. A big recharge!</h2><p>⚡ +${r.reward} minutes · ✨ +${r.early?12:10} points</p><p>${r.early?'You finished early! A little bonus is yours.':'Every finished task counts. Nice work!'}</p>${state().completed===3?'<p>👾 Monster Match is now on your map!</p>':''}<button class="primary" id="reward-next">${state().tasks.length?'Next task →':'Back to my trail'}</button><button class="plain" id="reward-map">Visit the arcade</button><p id="auto-hint" class="muted"></p></div>`);
