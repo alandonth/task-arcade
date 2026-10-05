@@ -1,0 +1,7 @@
+{
+  "name": "task-arcade",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {"directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"]},
+  "d1_databases": [{"binding": "DB", "database_name": "task-arcade-db", "database_id": "REPLACE_WITH_DATABASE_ID", "migrations_dir": "migrations"}]
+}
