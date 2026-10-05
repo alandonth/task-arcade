@@ -1,3 +1,4 @@
+import {ANIMALS,wardrobeFor,wardrobeAction} from '../public/catalog.js';
 import {DEFAULT_SETTINGS,GAMES,initialState,finishTask,elapsed,settlePlay,validateSettings} from './domain.js';
 const enc=new TextEncoder();
 const hex=b=>Array.from(new Uint8Array(b),v=>v.toString(16).padStart(2,'0')).join('');
@@ -22,7 +23,7 @@ async function issue(req,db,hid){const token=hex(crypto.getRandomValues(new Uint
 async function snapshot(db,s){
  const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();
  const p=await db.prepare('SELECT * FROM profiles WHERE household_id=? ORDER BY rowid').bind(s.household_id).all();
- return {settings:JSON.parse(h.settings),adult:s.adult_until>Date.now(),profiles:p.results.map(p=>({...p,state:JSON.parse(p.state)}))};
+ return {settings:JSON.parse(h.settings),adult:s.adult_until>Date.now(),profiles:p.results.map(p=>({...p,state:{...JSON.parse(p.state),wardrobe:wardrobeFor(JSON.parse(p.state),p.avatar)}}))};
 }
 export default {async fetch(req,env){
  const url=new URL(req.url);if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(req);
@@ -59,11 +60,11 @@ export default {async fetch(req,env){
  }
  const adult=()=>{if(s.adult_until<=now)fail('Unlock adult settings first.',403);};
  if(path==='/api/settings'&&req.method==='POST'){adult();const settings=validateSettings(b);await db.prepare('UPDATE households SET settings=? WHERE id=?').bind(JSON.stringify(settings),s.household_id).run();return json({ok:true});}
- if(path==='/api/profiles'&&req.method==='POST'){adult();const name=text(b.name,30);if(!name)fail('Enter a name.');const n=await db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE household_id=?').bind(s.household_id).first();if(n.n>=12)fail('This household already has 12 profiles.');await db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),s.household_id,name,AVATARS.includes(b.avatar)?b.avatar:'🐸',JSON.stringify(initialState())).run();return json({ok:true});}
+ if(path==='/api/profiles'&&req.method==='POST'){adult();const name=text(b.name,30);if(!name)fail('Enter a name.');const n=await db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE household_id=?').bind(s.household_id).first();if(n.n>=12)fail('This household already has 12 profiles.');await db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),s.household_id,name,'🐸',JSON.stringify({...initialState(),wardrobe:{...wardrobeFor(),animal:ANIMALS.some(a=>a.id===b.animal)?b.animal:'frog'}})).run();return json({ok:true});}
  if(path!=='/api/action'||req.method!=='POST')fail('Not found.',404);
  const p=await db.prepare('SELECT * FROM profiles WHERE id=? AND household_id=?').bind(text(b.profileId,80),s.household_id).first();if(!p)fail('Player not found.',404);
  if(b.version!==p.version)fail('This profile changed on another screen. Refresh and try again.',409);
- const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();const settings=JSON.parse(h.settings),state=JSON.parse(p.state);let result={};
+ const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();const settings=JSON.parse(h.settings),state=JSON.parse(p.state);state.wardrobe=wardrobeFor(state,p.avatar);let result={};
  switch(b.action){
  case 'add':{if(state.tasks.length>=50)fail('Finish a few tasks before adding more.');const title=text(b.title,100),minutes=Number(b.minutes);if(!title||!Number.isInteger(minutes)||minutes<1||minutes>180)fail('Enter a task and 1–180 minutes.');state.tasks.push({id:crypto.randomUUID(),title,minutes,category:['chores','homework','other'].includes(b.category)?b.category:'other',steps:text(b.steps,1000).split('\n').map(x=>x.trim()).filter(Boolean).slice(0,12),prompt:text(b.prompt,200),checked:[]});break;}
  case 'remove':if(state.active?.taskId===b.taskId)fail('Stop the timer before removing this task.');state.tasks=state.tasks.filter(t=>t.id!==b.taskId);break;
@@ -74,6 +75,7 @@ export default {async fetch(req,env){
  case 'stop':state.active=null;break;
  case 'check':{const t=state.tasks.find(t=>t.id===b.taskId);if(!t||!Number.isInteger(b.index)||b.index<0||b.index>=t.steps.length)fail('Step not found.');t.checked=t.checked.includes(b.index)?t.checked.filter(i=>i!==b.index):[...t.checked,b.index];break;}
  case 'complete':result=finishTask(state,settings,now);break;
+ case 'animal':case 'buyItem':case 'equipItem':try{wardrobeAction(state,b.action,b);}catch(e){fail(e.message);}break;
  case 'theme':{if(!['carnival','space','lava'].includes(b.theme))fail('Theme not found.');if(!state.ownedThemes.includes(b.theme)){if(state.points<30)fail('You need 30 points.');state.points-=30;state.ownedThemes.push(b.theme);}state.theme=b.theme;break;}
  case 'voice':if(!['friendly','robot','calm'].includes(b.voice))fail('Voice not found.');state.voice=b.voice;break;
  case 'play':{const g=GAMES.find(g=>g.id===b.gameId);if(!g||state.completed<g.at)fail('Discover this game by completing more tasks.');if(state.active)fail('Finish or stop your task before playing.');settlePlay(state,now);if(settings.playMode==='earned'&&state.energy<=0)fail('Complete a task to wake the arcade!');state.play={gameId:g.id,startedAt:now,leaseUntil:now+15000,earned:settings.playMode==='earned'};break;}
