@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {wardrobeFor,wardrobeAction,ITEMS} from '../public/catalog.js';
+import {initialState} from '../src/domain.js';
+import {character,vectorize} from '../public/art.js';
+test('legacy profiles keep progress and receive matching animal and free outfit',()=>{const s=initialState();s.completed=12;s.points=61;const w=wardrobeFor(s,'🦊');assert.equal(w.animal,'fox');assert.equal(w.equipped.shirt,'shirt-basic');assert.equal(s.points,61);assert.equal(s.completed,12);});
+test('purchase deducts once, equips item, and owned item stays free',()=>{const s=initialState();s.points=60;wardrobeAction(s,'buyItem',{itemId:'crown'});assert.equal(s.points,25);assert.equal(s.wardrobe.equipped.hat,'crown');wardrobeAction(s,'equipItem',{itemId:'hat-none'});wardrobeAction(s,'buyItem',{itemId:'crown'});assert.equal(s.points,25);assert.equal(s.wardrobe.owned.filter(x=>x==='crown').length,1);});
+test('insufficient points and unowned equipment are rejected',()=>{const s=initialState();assert.throws(()=>wardrobeAction(s,'buyItem',{itemId:'wizard'}));assert.throws(()=>wardrobeAction(s,'equipItem',{itemId:'crown'}));assert.equal(s.points,0);});
+test('free animal selection preserves outfits and currency',()=>{const s=initialState();s.points=40;wardrobeAction(s,'buyItem',{itemId:'glasses'});wardrobeAction(s,'animal',{animal:'bear'});assert.equal(s.wardrobe.equipped.accessory,'glasses');assert.equal(s.points,20);assert.throws(()=>wardrobeAction(s,'animal',{animal:'<script>'}));});
+test('all animal and outfit layers generate valid SVG strings; UI icon conversion works',()=>{for(const animal of ['frog','fox','cat','bear'])for(const item of ITEMS){const w=wardrobeFor();w.animal=animal;w.owned.push(item.id);w.equipped[item.slot]=item.id;const svg=character(w);assert.match(svg,/^<svg/);assert.ok(!svg.includes('undefined'));}assert.ok(vectorize('⚡ 🎁').includes('<svg'));});

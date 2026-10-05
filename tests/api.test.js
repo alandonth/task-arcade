@@ -22,6 +22,9 @@ test('accounts, PIN enforcement, profile separation, rewards and conflict protec
  assert.equal((await call('action',{profileId:id,version:3,action:'play',gameId:'memory'})).status,400);
  assert.equal((await call('action',{profileId:'foreign-profile',version:0,action:'add',title:'x',minutes:1})).status,404);
  assert.equal((await call('adult',{pin:'4826'},'https://evil.local')).status,403);
+ assert.equal((await call('action',{profileId:id,version:3,action:'buyItem',itemId:'crown'})).status,400);
+ a=await call('action',{profileId:id,version:3,action:'animal',animal:'fox'});assert.equal(a.status,200);assert.equal(a.data.profiles[0].state.wardrobe.animal,'fox');assert.equal(a.data.profiles[0].state.completed,1);
+ assert.equal((await call('action',{profileId:id,version:4,action:'equipItem',itemId:'crown'})).status,400);
  assert.equal((await call('logout',{})).status,200);assert.equal((await call('state')).status,401);
  assert.equal((await call('login',{username:'testfamily',password:'strong-passphrase'})).status,200);
 });
