@@ -1,5 +1,5 @@
 export const DEFAULT_SETTINGS = {rewardMinutes:5, bonusMinutes:1, playMode:'earned', autoNext:false, keepAwake:true, reminderSeconds:90};
-export const GAMES = [{id:'stars',name:'Star Scoop',icon:'⭐',at:0},{id:'memory',name:'Monster Match',icon:'👾',at:3}];
+export {GAMES} from '../public/config.js';
 export function initialState(){return {tasks:[],active:null,energy:0,points:0,completed:0,theme:'carnival',ownedThemes:['carnival'],voice:'friendly',scores:{},play:null,history:[]};}
 export function elapsed(active,now){return active.elapsed + (active.startedAt===null?0:Math.max(0,now-active.startedAt));}
 export function finishTask(state,settings,now){
