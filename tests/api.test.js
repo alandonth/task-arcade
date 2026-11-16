@@ -44,3 +44,22 @@ test('profile names persist without changing login, rewards or sibling profiles'
  await call('logout',{});assert.equal((await call('login',{username:'renamefamily',password:'strong-passphrase'})).status,200);
  const saved=(await call('state')).data;assert.equal(saved.profiles[0].name,'May & Fox');assert.deepEqual(saved.profiles[1],sibling);
 });
+
+test('username/password-only registration creates a ready player; optional PIN setup cannot overwrite a PIN',async()=>{
+ const env={DB:new D1()};let cookie='';async function call(path,body){const r=await worker.fetch(new Request('https://test.local/api/'+path,{method:body?'POST':'GET',headers:{Origin:'https://test.local',Cookie:cookie,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined}),env);if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()};}
+ assert.equal((await call('register',{username:'Simple_Player',password:'strong-passphrase'})).status,201);
+ let d=(await call('state')).data;assert.equal(d.hasPin,false);assert.equal(d.adult,false);assert.equal(d.profiles.length,1);assert.equal(d.profiles[0].name,'simple_player');assert.equal(d.profiles[0].state.energy,0);
+ assert.equal((await call('settings',d.settings)).status,403);
+ assert.equal((await call('adult',{pin:'1234'})).status,400);
+ assert.equal((await call('adult',{setup:true,pin:'1234',confirmPin:'9999'})).status,400);
+ assert.equal((await call('adult',{setup:true,pin:'1',confirmPin:'1'})).status,400);
+ assert.equal((await call('adult',{setup:true,pin:'9876',confirmPin:'9876'})).status,200);
+ d=(await call('state')).data;assert.equal(d.hasPin,true);assert.equal(d.adult,true);
+ assert.equal((await call('settings',{...d.settings,rewardMinutes:8})).status,200);
+ assert.equal((await call('adult',{setup:true,pin:'1111',confirmPin:'1111'})).status,409);
+ await call('adult',{lock:true});assert.equal((await call('settings',d.settings)).status,403);
+ assert.equal((await call('adult',{pin:'1111'})).status,403);assert.equal((await call('adult',{pin:'9876'})).status,200);
+ const h=env.DB.db.prepare('SELECT pin_hash FROM households WHERE username=?').get('simple_player');assert.ok(h.pin_hash.includes(':'));assert.notEqual(h.pin_hash,'9876');
+ await call('logout',{});assert.equal((await call('login',{username:'simple_player',password:'strong-passphrase'})).status,200);
+ d=(await call('state')).data;assert.equal(d.hasPin,true);assert.equal(d.adult,false);assert.equal(d.profiles[0].name,'simple_player');assert.equal(d.settings.rewardMinutes,8);
+});
