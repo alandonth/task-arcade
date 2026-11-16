@@ -15,3 +15,10 @@ export const GAMES = [
  {id:'fish',name:'Bowl Bounce',symbol:'fish',at:38,seconds:45,description:'Catch jumping fish before they fall.',instructions:'Slide your net by dragging or using arrows. Catch fish as they fall back down. Gold fish score extra.'}
 ];
 export function matchScore(seconds,turns){return Math.max(100,Math.round(2500-seconds*18-Math.max(0,turns-6)*35));}
+
+export function encouragementFor(task){
+ if(task.prompt)return task.prompt;
+ const step=(task.steps||[]).find((_,i)=>!(task.checked||[]).includes(i));
+ if(step)return `Next little step: ${step}`;
+ return task.category==='homework'?`Keep working on ${task.title}. One question at a time.`:`Keep going with ${task.title}. You’re making progress!`;
+}
