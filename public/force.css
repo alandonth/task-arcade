@@ -1,6 +1,6 @@
 /* Force of Focus: toy-like controls, teal power and brushed-gold accents. */
 :root{--ink:#14262a;--paper:#e9eeec;--surface:#fafcfb;--yellow:#e8c66b;--pink:#63cbbd;--blue:#8ad6ce;--green:#51c7b6;--purple:#adc5c8;--shadow:4px 5px 0 #14262a;font-family:'Trebuchet MS',system-ui,sans-serif}
-body{background-image:radial-gradient(#24434219 1.5px,transparent 1.5px)}
+body{background-image:none}
 body[data-theme=space]{--paper:#dce6e8;--yellow:#d8be7b;--pink:#65b5c0;--blue:#80c5cc;--green:#63c9c3}
 body[data-theme=lava]{--paper:#f1e8ce;--yellow:#e5bd58;--pink:#6cbeb0;--blue:#9ed4c4;--green:#51bda5}
 button.primary,.yellow{background:linear-gradient(120deg,#b58a32 0%,#f3d685 28%,#e1bc60 54%,#f7df98 68%,#c29a40 100%)}
