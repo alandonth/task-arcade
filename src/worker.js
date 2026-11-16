@@ -64,8 +64,10 @@ export default {async fetch(req,env){
  if(path!=='/api/action'||req.method!=='POST')fail('Not found.',404);
  const p=await db.prepare('SELECT * FROM profiles WHERE id=? AND household_id=?').bind(text(b.profileId,80),s.household_id).first();if(!p)fail('Player not found.',404);
  if(b.version!==p.version)fail('This profile changed on another screen. Refresh and try again.',409);
- const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();const settings=JSON.parse(h.settings),state=JSON.parse(p.state);state.wardrobe=wardrobeFor(state,p.avatar);let result={};
+ const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();const settings=JSON.parse(h.settings),state=JSON.parse(p.state);state.wardrobe=wardrobeFor(state,p.avatar);let result={},name=p.name;
  switch(b.action){
+ case 'rename':{if(typeof b.name!=='string'||!b.name.trim()||b.name.trim().length>30||/[\x00-\x1f\x7f]/.test(b.name))fail('Enter a name between 1 and 30 characters.');name=b.name.trim();break;}
+ case 'voiceChoice':{const v=b.voice;if(v===null){state.voiceChoice=null;break;}if(!v||typeof v!=='object'||typeof v.name!=='string'||!v.name.trim()||v.name.length>160||typeof v.lang!=='string'||!/^en(?:[-_][a-zA-Z0-9]+)*$/i.test(v.lang)||v.lang.length>40||typeof v.uri!=='string'||v.uri.length>500)fail('Choose an available voice.');state.voiceChoice={name:v.name,lang:v.lang,uri:v.uri};break;}
  case 'add':{if(state.tasks.length>=50)fail('Finish a few tasks before adding more.');const title=text(b.title,100),minutes=Number(b.minutes);if(!title||!Number.isInteger(minutes)||minutes<1||minutes>180)fail('Enter a task and 1–180 minutes.');state.tasks.push({id:crypto.randomUUID(),title,minutes,category:['chores','homework','other'].includes(b.category)?b.category:'other',steps:text(b.steps,1000).split('\n').map(x=>x.trim()).filter(Boolean).slice(0,12),prompt:text(b.prompt,200),checked:[]});break;}
  case 'remove':if(state.active?.taskId===b.taskId)fail('Stop the timer before removing this task.');state.tasks=state.tasks.filter(t=>t.id!==b.taskId);break;
  case 'move':{const i=state.tasks.findIndex(t=>t.id===b.taskId),j=i+(b.direction===-1?-1:1);if(i>=0&&j>=0&&j<state.tasks.length)[state.tasks[i],state.tasks[j]]=[state.tasks[j],state.tasks[i]];break;}
@@ -83,7 +85,7 @@ export default {async fetch(req,env){
  case 'endPlay':{const id=state.play?.gameId;settlePlay(state,now);const score=Number(b.score);if(id&&Number.isInteger(score)&&score>=0&&score<=100000)state.scores[id]=Math.max(state.scores[id]||0,score);break;}
  default:fail('Unknown action.');
  }
- const r=await db.prepare('UPDATE profiles SET state=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(state),p.id,p.version).run();if(!r.meta.changes)fail('This profile changed. Refresh and try again.',409);
+ const r=await db.prepare('UPDATE profiles SET state=?,name=?,version=version+1 WHERE id=? AND version=?').bind(JSON.stringify(state),name,p.id,p.version).run();if(!r.meta.changes)fail('This profile changed. Refresh and try again.',409);
  return json({result,...await snapshot(db,s)});
  }catch(e){if(!e.status)console.error('API error',e);return json({error:e.status?e.message:'Something went wrong. Please try again.'},e.status||500);}
 }};
