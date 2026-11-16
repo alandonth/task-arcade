@@ -21,9 +21,9 @@ async function rate(db,key,limit){
 async function session(req,db){const token=req.headers.get('Cookie')?.match(/(?:^|;\s*)ta_session=([^;]+)/)?.[1];if(!token)fail('Please sign in.',401);const s=await db.prepare('SELECT * FROM sessions WHERE token_hash=? AND expires_at>?').bind(await sha(token),Date.now()).first();if(!s)fail('Please sign in again.',401);return s;}
 async function issue(req,db,hid){const token=hex(crypto.getRandomValues(new Uint8Array(32)));await db.prepare('INSERT INTO sessions(token_hash,household_id,expires_at) VALUES(?,?,?)').bind(await sha(token),hid,Date.now()+30*86400000).run();return {'Set-Cookie':`ta_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${new URL(req.url).protocol==='https:'?'; Secure':''}`};}
 async function snapshot(db,s){
- const h=await db.prepare('SELECT settings FROM households WHERE id=?').bind(s.household_id).first();
+ const h=await db.prepare('SELECT settings,pin_hash FROM households WHERE id=?').bind(s.household_id).first();
  const p=await db.prepare('SELECT * FROM profiles WHERE household_id=? ORDER BY rowid').bind(s.household_id).all();
- return {settings:JSON.parse(h.settings),adult:s.adult_until>Date.now(),profiles:p.results.map(p=>({...p,state:{...JSON.parse(p.state),wardrobe:wardrobeFor(JSON.parse(p.state),p.avatar)}}))};
+ return {hasPin:!!h.pin_hash,settings:JSON.parse(h.settings),adult:s.adult_until>Date.now(),profiles:p.results.map(p=>({...p,state:{...JSON.parse(p.state),wardrobe:wardrobeFor(JSON.parse(p.state),p.avatar)}}))};
 }
 export default {async fetch(req,env){
  const url=new URL(req.url);if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(req);
@@ -37,10 +37,10 @@ export default {async fetch(req,env){
  await rate(db,'register:'+ (req.headers.get('CF-Connecting-IP')||'local'),10);
  const username=text(b.username,40).toLowerCase();if(!/^[a-z0-9_-]{3,40}$/.test(username))fail('Use 3–40 letters, numbers, underscores or dashes.');
  if(typeof b.password!=='string'||b.password.length<10||b.password.length>128)fail('Use a password of 10–128 characters.');
- if(!/^\d{4,8}$/.test(b.pin||''))fail('Choose a 4–8 digit adult PIN.');
- const name=text(b.name,30);if(!name)fail('Enter the first player’s name.');
- const hid=crypto.randomUUID();const ph=await hashPassword(b.password),pin=await hashPassword(b.pin);
- try{await db.batch([db.prepare('INSERT INTO households VALUES(?,?,?,?,?,?)').bind(hid,username,ph,pin,JSON.stringify(DEFAULT_SETTINGS),now),db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),hid,name,'🐸',JSON.stringify(initialState()))]);}catch(e){if(String(e).includes('UNIQUE'))fail('That household username is already taken.',409);throw e;}
+ if(b.pin!==undefined&&!/^\d{4,8}$/.test(b.pin||''))fail('Choose a 4–8 digit adult PIN.');
+ const name=text(b.name,30)||username.slice(0,30);
+ const hid=crypto.randomUUID();const ph=await hashPassword(b.password),pin=b.pin===undefined?'':await hashPassword(b.pin);
+ try{await db.batch([db.prepare('INSERT INTO households VALUES(?,?,?,?,?,?)').bind(hid,username,ph,pin,JSON.stringify(DEFAULT_SETTINGS),now),db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),hid,name,'🐸',JSON.stringify(initialState()))]);}catch(e){if(String(e).includes('UNIQUE'))fail('That username is already taken.',409);throw e;}
  return json({ok:true},201,await issue(req,db,hid));
  }
  if(path==='/api/login'&&req.method==='POST'){
@@ -55,12 +55,21 @@ export default {async fetch(req,env){
  if(path==='/api/adult'&&req.method==='POST'){
  if(b.lock){await db.prepare('UPDATE sessions SET adult_until=0 WHERE token_hash=?').bind(s.token_hash).run();return json({ok:true});}
  await rate(db,'pin:'+s.household_id,10);const h=await db.prepare('SELECT pin_hash FROM households WHERE id=?').bind(s.household_id).first();
- if(!/^\d{4,8}$/.test(b.pin||'')||!await verify(b.pin,h.pin_hash))fail('That PIN didn’t match.',403);
+ if(b.setup){
+  if(h.pin_hash)fail('A PIN is already set. Enter it to unlock these controls.',409);
+  if(!/^\d{4,8}$/.test(b.pin||''))fail('Choose a 4–8 digit PIN.');
+  if(b.pin!==b.confirmPin)fail('The PINs do not match.');
+  const hash=await hashPassword(b.pin);const change=await db.prepare("UPDATE households SET pin_hash=? WHERE id=? AND pin_hash=''").bind(hash,s.household_id).run();
+  if(!change.meta.changes)fail('A PIN was just set. Refresh and enter it.',409);
+ }else{
+  if(!h.pin_hash)fail('Set a PIN to use these controls.',400);
+  if(!/^\d{4,8}$/.test(b.pin||'')||!await verify(b.pin,h.pin_hash))fail('That PIN didn’t match.',403);
+ }
  await db.prepare('UPDATE sessions SET adult_until=? WHERE token_hash=?').bind(now+600000,s.token_hash).run();return json({ok:true});
  }
  const adult=()=>{if(s.adult_until<=now)fail('Unlock adult settings first.',403);};
  if(path==='/api/settings'&&req.method==='POST'){adult();const settings=validateSettings(b);await db.prepare('UPDATE households SET settings=? WHERE id=?').bind(JSON.stringify(settings),s.household_id).run();return json({ok:true});}
- if(path==='/api/profiles'&&req.method==='POST'){adult();const name=text(b.name,30);if(!name)fail('Enter a name.');const n=await db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE household_id=?').bind(s.household_id).first();if(n.n>=12)fail('This household already has 12 profiles.');await db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),s.household_id,name,'🐸',JSON.stringify({...initialState(),wardrobe:{...wardrobeFor(),animal:ANIMALS.some(a=>a.id===b.animal)?b.animal:'frog'}})).run();return json({ok:true});}
+ if(path==='/api/profiles'&&req.method==='POST'){adult();const name=text(b.name,30);if(!name)fail('Enter a name.');const n=await db.prepare('SELECT COUNT(*) AS n FROM profiles WHERE household_id=?').bind(s.household_id).first();if(n.n>=12)fail('This account already has 12 profiles.');await db.prepare('INSERT INTO profiles(id,household_id,name,avatar,state) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),s.household_id,name,'🐸',JSON.stringify({...initialState(),wardrobe:{...wardrobeFor(),animal:ANIMALS.some(a=>a.id===b.animal)?b.animal:'frog'}})).run();return json({ok:true});}
  if(path!=='/api/action'||req.method!=='POST')fail('Not found.',404);
  const p=await db.prepare('SELECT * FROM profiles WHERE id=? AND household_id=?').bind(text(b.profileId,80),s.household_id).first();if(!p)fail('Player not found.',404);
  if(b.version!==p.version)fail('This profile changed on another screen. Refresh and try again.',409);
