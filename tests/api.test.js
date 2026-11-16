@@ -28,3 +28,24 @@ test('accounts, PIN enforcement, profile separation, rewards and conflict protec
  assert.equal((await call('logout',{})).status,200);assert.equal((await call('state')).status,401);
  assert.equal((await call('login',{username:'testfamily',password:'strong-passphrase'})).status,200);
 });
+
+test('profile names and real voice choices persist without changing login, rewards or sibling profiles',async()=>{
+ const env={DB:new D1()};let cookie='';
+ async function call(path,body){const r=await worker.fetch(new Request('https://test.local/api/'+path,{method:body?'POST':'GET',headers:{Origin:'https://test.local',...(body?{'Content-Type':'application/json'}:{}),Cookie:cookie},body:body?JSON.stringify(body):undefined}),env);if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()};}
+ await call('register',{username:'renamefamily',password:'strong-passphrase',pin:'4826',name:'Maya'});
+ await call('adult',{pin:'4826'});await call('profiles',{name:'Sibling',animal:'fox'});await call('adult',{lock:true});
+ const before=(await call('state')).data,first=before.profiles[0],sibling=before.profiles[1];
+ const act=(action,extra={},version)=>call('action',{profileId:first.id,version:version??first.version,action,...extra});
+ for(const name of ['', '   ', 'x'.repeat(31), 'Maya\nX'])assert.equal((await act('rename',{name})).status,400);
+ assert.equal((await call('action',{profileId:'foreign-profile',version:0,action:'rename',name:'Oops'})).status,404);
+ const rename=await act('rename',{name:'  May & Fox  '});assert.equal(rename.status,200);
+ assert.equal(rename.data.profiles[0].name,'May & Fox');assert.deepEqual(rename.data.profiles[0].state,first.state);assert.deepEqual(rename.data.profiles[1],sibling);
+ assert.equal((await act('rename',{name:'Stale'},0)).status,409);
+ const voice={uri:'native/voice-2',name:'Natural English',lang:'en-US'};
+ let a=await act('voiceChoice',{voice},1);assert.equal(a.status,200);assert.deepEqual(a.data.profiles[0].state.voiceChoice,voice);
+ assert.equal((await act('voiceChoice',{voice:{...voice,lang:'invalid language'}},2)).status,400);
+ assert.equal((await act('voiceChoice',{voice:{...voice,name:''}},2)).status,400);
+ assert.equal((await act('voiceChoice',{voice:null},2)).status,200);
+ await call('logout',{});assert.equal((await call('login',{username:'renamefamily',password:'strong-passphrase'})).status,200);
+ const saved=(await call('state')).data;assert.equal(saved.profiles[0].name,'May & Fox');assert.equal(saved.profiles[0].state.voiceChoice,null);assert.deepEqual(saved.profiles[1],sibling);
+});
